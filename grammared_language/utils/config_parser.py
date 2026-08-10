@@ -1,12 +1,15 @@
 """Utilities for parsing model configuration files."""
+from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal, Union
+from typing import TYPE_CHECKING, Dict, Any, Optional, List, Literal, Union
 import yaml
 import os
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from grammared_language.clients.base_client import BaseClient
+# Prevent circular dependancy 
+if TYPE_CHECKING:
+    from grammared_language.clients.base_client import BaseClient
 
 DEFAULT_MODEL_CONFIG_PATH = "/default_model_config.yaml"
 MODEL_CONFIG_PATH = "/model_config.yaml"
