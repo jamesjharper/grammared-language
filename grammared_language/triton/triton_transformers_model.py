@@ -66,9 +66,14 @@ def load_pipeline_from_config(model_config:BaseModelConfig, task="text2text-gene
             provider = "CPUExecutionProvider"
             if 'cuda' in kwargs['device'].lower():
                 provider = 'CUDAExecutionProvider'
+            # rayliuca/coedit-large-onnx ships separate decoder and
+            # decoder-with-past ONNX files, not decoder_model_merged.onnx.
+            # Explicitly disable Optimum's merged-decoder lookup so this
+            # model layout loads on the supported CUDA runtime.
             model = ORTModelClass.from_pretrained(
                 hf_model,
-                provider=provider
+                provider=provider,
+                use_merged=False,
             )
             logger.warning(f"model_config.model_config: {model_config.model_config}")
             logger.warning(f"kwargs: {kwargs}")
