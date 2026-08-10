@@ -141,6 +141,45 @@ class TestText2TextBaseClient:
         
         # Should return original text if no output
         assert result == input_text
+
+    @patch('grammared_language.clients.text2text_base_client.grpcclient')
+    def test_predict_batch_uses_column_tensor_and_preserves_output_order(self, mock_grpcclient):
+        """A batch must match Triton's [batch_size, 1] text-input contract."""
+        mock_client = Mock()
+        mock_grpcclient.InferenceServerClient = Mock(return_value=mock_client)
+        mock_grpcclient.InferInput = Mock()
+        mock_grpcclient.InferRequestedOutput = Mock()
+        mock_response = Mock()
+        mock_response.as_numpy.return_value = np.array(
+            [[b"first output"], [b"second output"], [b"third output"]],
+            dtype=object,
+        )
+        mock_client.infer.return_value = mock_response
+
+        client = Text2TextBaseClient(model_name="coedit_large")
+        result = client._predict(["first input", "second input", "third input"])
+
+        assert result == ["first output", "second output", "third output"]
+        infer_input_args = mock_grpcclient.InferInput.call_args.args
+        assert infer_input_args[1] == [3, 1]
+
+    @patch('grammared_language.clients.text2text_base_client.grpcclient')
+    def test_predict_batch_full_flow_does_not_cache_unhashable_list(self, mock_grpcclient):
+        mock_client = Mock()
+        mock_grpcclient.InferenceServerClient = Mock(return_value=mock_client)
+        mock_grpcclient.InferInput = Mock()
+        mock_grpcclient.InferRequestedOutput = Mock()
+        mock_response = Mock()
+        mock_response.as_numpy.return_value = np.array(
+            [[b"First."], [b"Second."], [b"Third."]], dtype=object
+        )
+        mock_client.infer.return_value = mock_response
+
+        client = Text2TextBaseClient(model_name="coedit_large")
+        results = client.predict(["First.", "Second.", "Third."])
+
+        assert len(results) == 3
+        assert mock_client.infer.call_count == 1
     
     @patch('grammared_language.clients.text2text_base_client.grpcclient')
     def test_predict_full_flow(self, mock_grpcclient):
