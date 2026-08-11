@@ -104,13 +104,11 @@ class AsyncMultiClient:
         """
         results = await self._predict_async(text)
         
-        if not results:
-            return LanguageToolRemoteResult(
-                language="English",
-                languageCode="en-US",
-                matches=[]
-            )
-        
+        return self._merge_results(results)
+
+    @staticmethod
+    def _merge_results(results: List[LanguageToolRemoteResult]) -> LanguageToolRemoteResult:
+        """Merge client results while preserving single-input merge semantics."""
         # Merge matches from all results
         merged_matches = []
         seen_replacements = set()
@@ -149,24 +147,10 @@ class AsyncMultiClient:
         Returns:
             List of merged LanguageToolRemoteResult for each text
         """
-        tasks = [self._predict_with_merge_async(text) for text in texts]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Filter out exceptions and return valid results
-        valid_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                print(f"Text {i} failed with error: {result}")
-                # Return empty result for failed text
-                valid_results.append(LanguageToolRemoteResult(
-                    language="English",
-                    languageCode="en-US",
-                    matches=[]
-                ))
-            else:
-                valid_results.append(result)
-        
-        return valid_results
+        # Keep inference model-oriented: each client receives the complete
+        # batch once, then merge that client's result with the others per text.
+        results_by_text = await self._predict_batch_async(texts)
+        return [self._merge_results(results) for results in results_by_text]
     
     def predict(self, text: str) -> List[LanguageToolRemoteResult]:
         """

@@ -41,6 +41,42 @@ class MockClient(BaseClient):
             )
 
 
+class RecordingBatchClient(MockClient):
+    """Batch mock that records calls and makes each input's matches distinct."""
+
+    def __init__(self, name, offset_base=0):
+        super().__init__(name)
+        self.offset_base = offset_base
+
+    def predict(self, text):
+        if not isinstance(text, list):
+            return super().predict(text)
+        self.calls = getattr(self, "calls", []) + [text]
+        return [
+            LanguageToolRemoteResult(
+                language="English",
+                languageCode="en-US",
+                matches=[
+                    Match(
+                        message=f"{self.name}-{index}",
+                        shortMessage=self.name,
+                        offset=self.offset_base + index,
+                        length=1,
+                        suggestions=[self.name],
+                    )
+                ],
+            )
+            for index, _ in enumerate(text)
+        ]
+
+
+class ShortBatchClient(BaseClient):
+    """Returns an invalid short batch to exercise BaseClient validation."""
+
+    def _predict(self, text):
+        return ["first", "second"]
+
+
 class TestAsyncMultiClient:
     """Test suite for AsyncMultiClient."""
     
@@ -251,6 +287,67 @@ class TestAsyncMultiClient:
         # Each text should have results from both clients
         for text_results in results:
             assert len(text_results) == 2
+
+    @pytest.mark.asyncio
+    async def test_predict_batch_with_merge_batches_each_client_once_and_merges(self):
+        texts = ["first", "second", "third"]
+        client1 = RecordingBatchClient("gector", offset_base=5)
+        client2 = RecordingBatchClient("coedit", offset_base=1)
+        async_client = AsyncMultiClient(clients=[client1, client2])
+
+        results = await async_client._predict_batch_with_merge_async(texts)
+
+        assert client1.calls == [texts]
+        assert client2.calls == [texts]
+        assert len(results) == 3
+        for index, result in enumerate(results):
+            assert [match.message for match in result.matches] == [
+                f"coedit-{index}",
+                f"gector-{index}",
+            ]
+            assert [match.offset for match in result.matches] == [1 + index, 5 + index]
+
+    @pytest.mark.asyncio
+    async def test_predict_batch_with_merge_keeps_alignment_when_client_fails(self):
+        texts = ["first", "second", "third"]
+        client = RecordingBatchClient("gector")
+        failed_client = MockClient("coedit")
+        failed_client.predict = Mock(side_effect=ValueError("unavailable"))
+        async_client = AsyncMultiClient(clients=[client, failed_client])
+
+        results = await async_client._predict_batch_with_merge_async(texts)
+
+        assert client.calls == [texts]
+        assert len(results) == 3
+        assert [result.matches[0].message for result in results] == [
+            "gector-0",
+            "gector-1",
+            "gector-2",
+        ]
+
+    def test_predict_batch_rejects_short_model_output(self):
+        client = ShortBatchClient(rule_id="short")
+
+        with pytest.raises(
+            RuntimeError,
+            match="Batch prediction returned 2 outputs for 3 inputs",
+        ):
+            client.predict(["first", "second", "third"])
+
+    @pytest.mark.asyncio
+    async def test_predict_batch_failure_adds_aligned_empty_client_results(self):
+        texts = ["first", "second", "third"]
+        successful_client = RecordingBatchClient("gector")
+        failed_client = MockClient("coedit")
+        failed_client.predict = Mock(side_effect=RuntimeError("unavailable"))
+        async_client = AsyncMultiClient(clients=[successful_client, failed_client])
+
+        results = await async_client._predict_batch_async(texts)
+
+        assert successful_client.calls == [texts]
+        assert len(results) == 3
+        assert all(len(client_results) == 2 for client_results in results)
+        assert all(client_results[1].matches == [] for client_results in results)
     
     @pytest.mark.asyncio
     async def test_concurrent_requests_same_text(self):

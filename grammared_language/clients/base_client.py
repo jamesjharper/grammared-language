@@ -28,32 +28,37 @@ class BaseClient:
     def _output_postprocess(self, original: str, pred: LanguageToolRemoteResult, **kwargs) -> LanguageToolRemoteResult:
         return pred
 
-    @lru_cache(maxsize=int(os.getenv('GRAMMARED_LANGUAGE__GRPC_SERVER_CACHE_SIZE', '100000')))
     def predict(self, text: str|list[str]) -> LanguageToolRemoteResult|list[LanguageToolRemoteResult]:
-        single = True
+        """Predict one text or an uncached model-oriented batch of texts."""
         if isinstance(text, list):
-            single = False
+            return self._predict_batch(text)
+        return self._predict_single(text)
 
-        if single:
-            _text = self._preprocess(text)
-        else:
-            _text = [self._preprocess(t) for t in text]
-        corrected_text: str|list[str] = self._predict(_text)
+    @lru_cache(maxsize=int(os.getenv('GRAMMARED_LANGUAGE__GRPC_SERVER_CACHE_SIZE', '100000')))
+    def _predict_single(self, text: str) -> LanguageToolRemoteResult:
+        """Predict and cache a single hashable input text."""
+        _text = self._preprocess(text)
+        corrected_text = self._predict(_text)
+        pred = self._pred_postprocess(text, corrected_text)
+        return self._output_postprocess(text, pred)
 
-        output = None
-        if single:
-            pred: LanguageToolRemoteResult = self._pred_postprocess(text, corrected_text)
-            output = self._output_postprocess(text, pred)
-        else:
-            pred = [
-                self._pred_postprocess(orig, corr)
-                for orig, corr in zip(text, corrected_text)
-            ]
-            output = [
-                self._output_postprocess(orig, p)
-                for orig, p in zip(text, pred)
-            ]
-        return output
+    def _predict_batch(self, texts: list[str]) -> list[LanguageToolRemoteResult]:
+        """Predict a batch without caching the unhashable list input."""
+        _texts = [self._preprocess(text) for text in texts]
+        corrected_texts = self._predict(_texts)
+        if len(corrected_texts) != len(texts):
+            raise RuntimeError(
+                f"Batch prediction returned {len(corrected_texts)} outputs "
+                f"for {len(texts)} inputs"
+            )
+        pred = [
+            self._pred_postprocess(original, corrected)
+            for original, corrected in zip(texts, corrected_texts)
+        ]
+        return [
+            self._output_postprocess(original, result)
+            for original, result in zip(texts, pred)
+        ]
 
     def __call__(self, text: str) -> LanguageToolRemoteResult:
         return self.predict(text)

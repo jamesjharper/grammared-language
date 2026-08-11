@@ -118,11 +118,11 @@ class Text2TextBaseClient(BaseClient):
         Returns:
             Generated/corrected text from the model
         """
-        # Prepare input as numpy array with shape [1, 1] for batching
-        # First dimension is batch size, second is the string dimension
+        # Prepare input as a two-dimensional array: [batch_size, 1].  Triton's
+        # text-to-text backend reads each prompt as input_data[i][0].
         single = True
         if isinstance(text, list):
-            text_np = np.array([text], dtype=object)
+            text_np = np.asarray(text, dtype=object).reshape(-1, 1)
             single = False
         else:
             text_np = np.array([[text]], dtype=object)
