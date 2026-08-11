@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Any, Optional, List, Literal, Union
 import yaml
 import os
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Prevent circular dependancy 
 if TYPE_CHECKING:
@@ -22,7 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 class ServingConfig(BaseModel):
-    """Configuration for model serving settings."""
+    """Configuration for model serving settings.
+
+    Triton scheduler batching is intentionally configured here, separately from
+    model_init_config/model_inference_config.  Those model settings (including
+    a GECToR prediction ``batch_size``) do not change Triton's request
+    scheduler, and client concurrency does not change either of them.
+    """
     
     model_config = ConfigDict(extra='allow')
     
@@ -33,6 +39,31 @@ class ServingConfig(BaseModel):
     pretrained_model_name_or_path: Optional[str] = None
     backend: Optional[str] = "transformers" # "transformers", "ort"
     device: Optional[str] = "auto"  # "cpu", "cuda", or "auto"
+    max_batch_size: int = Field(default=8, ge=1)
+    preferred_batch_sizes: Optional[List[int]] = Field(
+        default_factory=lambda: [1, 2, 4, 8]
+    )
+    # None selects the legacy default for the specific model type in
+    # TritonRepoBuilder (350 us for GECToR, 750 us for CoEdIT, 100 us for the
+    # classifier), preserving generated configs from before this field existed.
+    max_queue_delay_microseconds: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("preferred_batch_sizes")
+    @classmethod
+    def validate_preferred_batch_sizes(cls, value: Optional[List[int]]):
+        if value is not None and any(size < 1 for size in value):
+            raise ValueError("preferred_batch_sizes must contain positive integers")
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("preferred_batch_sizes must not contain duplicates")
+        return value
+
+    @model_validator(mode="after")
+    def validate_preferred_batch_sizes_do_not_exceed_max(self):
+        if self.preferred_batch_sizes and any(
+            size > self.max_batch_size for size in self.preferred_batch_sizes
+        ):
+            raise ValueError("preferred_batch_sizes cannot exceed max_batch_size")
+        return self
     
 
 class ModelInitConfig(BaseModel):
@@ -50,6 +81,14 @@ class ModelInferenceConfig(BaseModel):
     # temperature: Optional[float] = None
     # max_length: Optional[int] = None
     # num_beams: Optional[int] = None
+
+
+class GectorInferenceConfig(ModelInferenceConfig):
+    """Per-prediction GECToR settings, independent of Triton scheduling."""
+
+    # This retains GectorClient's historical default.  It controls how its
+    # predict helper chunks a caller-supplied list, not max_batch_size in Triton.
+    batch_size: int = Field(default=2, ge=1)
 
 
 class GrammaredConfig(BaseModel):
@@ -83,6 +122,9 @@ class GectorConfig(BaseModelConfig):
     """Configuration for GECToR models."""
     
     type: Literal['gector'] = 'gector'
+    model_inference_config: GectorInferenceConfig = Field(
+        default_factory=GectorInferenceConfig
+    )
 
 
 class GrammaredClassifierConfig(BaseModelConfig):
@@ -273,8 +315,16 @@ def create_client_from_config(
         if isinstance(config, GectorConfig):
             from grammared_language.clients.gector_client import GectorClient
             
-            # GectorClient expects model_id and triton_model_name
-            client_params = vars(config.serving_config)
+            # Scheduler settings are consumed when rendering Triton's config;
+            # GECToR's prediction batch_size comes only from model_inference_config.
+            client_params = config.serving_config.model_dump(
+                exclude={
+                    'max_batch_size',
+                    'preferred_batch_sizes',
+                    'max_queue_delay_microseconds',
+                }
+            )
+            client_params.update(config.model_inference_config.model_dump())
             client_params.update(vars(config.grammared_config) if config.grammared_config else {})
             
             return GectorClient(**client_params)

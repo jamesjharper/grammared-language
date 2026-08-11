@@ -8,7 +8,7 @@ from grammared_language.utils import config_parser
 
 DEFAULT_TEMPLATE_FOLDER = str(Path(__file__).parent / "triton_templates")
 
-SUPPORTED_MODEL_TYPES = ("gector", "grammared_classifier", "coedit")
+SUPPORTED_MODEL_TYPES = ("gector", "grammared_classifier", "coedit", "text2text")
 
 TEMPLATE_FILES_BY_MODEL_TYPE = {
     "gector": {
@@ -22,7 +22,20 @@ TEMPLATE_FILES_BY_MODEL_TYPE = {
     "coedit": {
         "config": "text2text.config.pbtxt.jinja",
         "model": "text2text.model.py.jinja"
+    },
+    "text2text": {
+        "config": "text2text.config.pbtxt.jinja",
+        "model": "text2text.model.py.jinja"
     }
+}
+
+# These are legacy generated-config defaults, kept outside the templates so all
+# scheduling values supplied to a template have a single, explicit source.
+DEFAULT_QUEUE_DELAY_MICROSECONDS_BY_MODEL_TYPE = {
+    "gector": 350,
+    "coedit": 750,
+    "text2text": 750,
+    "grammared_classifier": 100,
 }
 
 class TritonRepoBuilder:
@@ -62,10 +75,19 @@ class TritonRepoBuilder:
         template_files = TEMPLATE_FILES_BY_MODEL_TYPE[model_type]
         output_folder = Path(repo_folder) / name
         model_folder = output_folder / str(model_version)
+        serving_config = model_config.serving_config
+        max_queue_delay_microseconds = serving_config.max_queue_delay_microseconds
+        if max_queue_delay_microseconds is None:
+            max_queue_delay_microseconds = DEFAULT_QUEUE_DELAY_MICROSECONDS_BY_MODEL_TYPE[
+                model_type
+            ]
         config_file = self.jinja_env.get_template(template_files["config"]).render({
             "model_name": name,
             "pretrained_model_name_or_path": pretrained_model_name_or_path,
             "json_model_config": json.dumps(model_config.model_dump_json())[1:-1],
+            "max_batch_size": serving_config.max_batch_size,
+            "preferred_batch_sizes": serving_config.preferred_batch_sizes,
+            "max_queue_delay_microseconds": max_queue_delay_microseconds,
         })
 
         model_file = self.jinja_env.get_template(template_files["model"]).render()

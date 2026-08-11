@@ -8,6 +8,15 @@ gector_deberta_large:
         triton_model_name: gector_deberta_large
         device: cuda # cpu, cuda, or auto
 
+        # Triton scheduler limits. These are independent of GECToR's
+        # model_inference_config.batch_size and API request concurrency.
+        max_batch_size: 8 # largest single inference batch Triton may execute
+        # Target sizes for Triton's dynamic batcher; use null to omit targets.
+        preferred_batch_sizes: [1, 2, 4, 8]
+        # Maximum time Triton waits to form a dynamic batch, in microseconds.
+        max_queue_delay_microseconds: 350
+
+
 coedit_large:
     type: coedit
     backend: triton
@@ -19,7 +28,16 @@ coedit_large:
         triton_model_name: coedit_large
         backend: ort
         device: cuda # cpu, cuda, or auto
+        # Triton scheduler settings, not the ONNX model batch size.
+        max_batch_size: 8 # largest single inference batch Triton may execute
+        # Target sizes for Triton's dynamic batcher; use null to omit targets.
+        preferred_batch_sizes: [1, 2, 4, 8]
+        
+        # Maximum time Triton waits to form a dynamic batch, in microseconds.
+        max_queue_delay_microseconds: 750
+
     model_init_config:
+        # CoEdIT/ONNX model initialization batch setting; not a Triton limit.
         batch_size: 8
     model_inference_config:
         temperature: 0.8
