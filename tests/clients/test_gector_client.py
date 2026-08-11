@@ -66,7 +66,8 @@ class TestGectorClientUnit:
         # Create client
         client = GectorClient(
             pretrained_model_name_or_path="test-model",
-            verb_dict_path="test-vocab.txt"
+            verb_dict_path="test-vocab.txt",
+            auto_download_official_vocab=False,
         )
         
         # Verify initialization
@@ -99,7 +100,8 @@ class TestGectorClientUnit:
         client = GectorClient(
             pretrained_model_name_or_path="test-model",
             triton_model_name=MODEL_NAME,
-            verb_dict_path="test-vocab.txt"
+            verb_dict_path="test-vocab.txt",
+            auto_download_official_vocab=False,
         )
         
         # Verify Triton model was used (with triton_url parameter)
@@ -126,7 +128,11 @@ class TestGectorClientUnit:
         mock_predict.return_value = ["This is corrected text."]
         
         # Create client and test predict
-        client = GectorClient(pretrained_model_name_or_path="test-model", verb_dict_path="test-vocab.txt")
+        client = GectorClient(
+            pretrained_model_name_or_path="test-model",
+            verb_dict_path="test-vocab.txt",
+            auto_download_official_vocab=False,
+        )
         result = client._predict("This is test text")
         
         # Verify predict was called
@@ -149,7 +155,11 @@ class TestGectorClientUnit:
         mock_predict.return_value = ["This is the corrected text."]
         
         # Create client
-        client = GectorClient(pretrained_model_name_or_path="test-model", verb_dict_path="test-vocab.txt")
+        client = GectorClient(
+            pretrained_model_name_or_path="test-model",
+            verb_dict_path="test-vocab.txt",
+            auto_download_official_vocab=False,
+        )
         
         # Test full predict
         result = client.predict("This is test text")
@@ -177,7 +187,11 @@ class TestGectorClientUnit:
         mock_predict.return_value = ["Corrected text."]
         
         # Create client and test callable
-        client = GectorClient(pretrained_model_name_or_path="test-model", verb_dict_path="test-vocab.txt")
+        client = GectorClient(
+            pretrained_model_name_or_path="test-model",
+            verb_dict_path="test-vocab.txt",
+            auto_download_official_vocab=False,
+        )
         result = client("Test text")
         
         # Verify result

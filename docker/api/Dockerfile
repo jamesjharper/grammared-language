@@ -55,14 +55,13 @@ COPY api/src/ /src/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 apiuser && \
+    mkdir -p /src/data && \
     chown -R apiuser:apiuser /src
 
 USER apiuser
 
 # Change working directory to root to avoid import conflicts with /grammared_language
 WORKDIR /src
-
-COPY data/verb-form-vocab.txt /src/data/verb-form-vocab.txt
 
 # Expose API port
 EXPOSE 50051 50052

@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+import tempfile
 from urllib.request import urlopen
 
 from .base_client import BaseClient
@@ -29,6 +31,70 @@ except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
 OFFICIAL_VOCAB_URL = "https://github.com/grammarly/gector/raw/master/data/verb-form-vocab.txt"
+
+
+class VerbDictionaryError(ValueError):
+    """Raised when GECToR's verb-form vocabulary cannot be made usable."""
+
+
+def load_and_validate_verb_dict(verb_dict_file: Path):
+    """Load a vocabulary and reject empty or malformed parser output."""
+    if not verb_dict_file.is_file():
+        raise VerbDictionaryError("file is missing or is not a regular file")
+    if verb_dict_file.stat().st_size == 0:
+        raise VerbDictionaryError("file is empty")
+    try:
+        encode, decode = load_verb_dict(str(verb_dict_file))
+    except Exception as exc:
+        raise VerbDictionaryError(f"could not be parsed: {exc}") from exc
+    if not encode or not decode:
+        raise VerbDictionaryError("parsed to zero encode or decode entries")
+    return encode, decode
+
+
+def ensure_verb_dict(
+    verb_dict_path: str,
+    *,
+    auto_download: bool,
+    download_url: str = OFFICIAL_VOCAB_URL,
+):
+    """Return a validated verb dictionary, replacing invalid files atomically."""
+    verb_dict_file = Path(verb_dict_path)
+    existed = verb_dict_file.exists()
+    try:
+        return load_and_validate_verb_dict(verb_dict_file)
+    except VerbDictionaryError as validation_error:
+        validation_reason = str(validation_error)
+        if not auto_download:
+            raise FileNotFoundError(
+                f"GECToR verb vocabulary at '{verb_dict_file}' existed={existed} "
+                f"but is invalid: {validation_reason}. Automatic download is disabled."
+            ) from validation_error
+
+    verb_dict_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with urlopen(download_url) as response:
+            downloaded_content = response.read()
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=verb_dict_file.parent, delete=False,
+            prefix=f".{verb_dict_file.name}.", suffix=".tmp"
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            temporary_file.write(downloaded_content)
+        encode, decode = load_and_validate_verb_dict(temporary_path)
+        os.replace(temporary_path, verb_dict_file)
+        return encode, decode
+    except Exception as download_error:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise FileNotFoundError(
+            f"GECToR verb vocabulary at '{verb_dict_file}' existed={existed} and "
+            f"was invalid: {validation_reason}. Download from {download_url} failed: "
+            f"{download_error}"
+        ) from download_error
+
+
 class GectorClient(BaseClient):
     def __init__(
             self,
@@ -49,6 +115,10 @@ class GectorClient(BaseClient):
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers package is required for GectorClient. Install it with: pip install transformers")
         
+        self.encode, self.decode = ensure_verb_dict(
+            verb_dict_path, auto_download=auto_download_official_vocab
+        )
+
         if triton_model_name is None:
             self.model = GECToR.from_pretrained(pretrained_model_name_or_path)
         else:
@@ -61,19 +131,6 @@ class GectorClient(BaseClient):
             )
 
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
-        verb_dict_file = Path(verb_dict_path)
-        if auto_download_official_vocab and not verb_dict_file.is_file():
-            verb_dict_file.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                with urlopen(OFFICIAL_VOCAB_URL) as response:
-                    verb_dict_file.write_bytes(response.read())
-            except Exception as exc:
-                raise FileNotFoundError(
-                    f"Failed to download verb vocab from {OFFICIAL_VOCAB_URL} to {verb_dict_file}"
-                ) from exc
-
-        self.encode, self.decode = load_verb_dict(verb_dict_path)
-
         self.pred_config = {
             'keep_confidence': kwargs.get('keep_confidence', 0),
             'min_error_prob': kwargs.get('min_error_prob', 0),
