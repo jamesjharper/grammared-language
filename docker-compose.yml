@@ -15,6 +15,8 @@ services:
       - LOG_VERBOSE=0
       - TRANSFORMERS_CACHE=/cache
       - HF_HOME=/cache
+      # HUGGING_FACE_TOKEN is supplied by .env
+      - HF_TOKEN=${HUGGING_FACE_TOKEN}
     ports:
       - "8000:8000"  # HTTP
       - "8001:8001"  # gRPC
@@ -22,7 +24,6 @@ services:
     volumes:
       - ./config/triton:/config:ro
       - triton-cache:/cache  # HuggingFace model cache
-      - ./hf_token:/cache/token  # HuggingFace token for private models
       - ./model_config.yaml:/model_config.yaml:ro  # Model configuration
       # - ./triton_server/example_model_repository:/models:ro  # Example models
     # shm_size: '1gb'
@@ -58,11 +59,12 @@ services:
       - ./model_config.yaml:/model_config.yaml:ro  # Model configuration
       - ./data:/data
       # - triton-cache:/cache  # HuggingFace model cache
-      - ./hf_token:/cache/token  # HuggingFace token for private models
     environment:
       # - GRRAMMARED_LANGUAGE__API_PORT=50051
       - LOG_LEVEL=INFO
       - GRAMMARED_LANGUAGE__MODEL_CONFIG_PATH=/model_config.yaml
+      # HUGGING_FACE_TOKEN is supplied by .env for tokenizer/model downloads.
+      - HF_TOKEN=${HUGGING_FACE_TOKEN}
       # - TRANSFORMERS_CACHE=/cache
       # - HF_HOME=/cache
     depends_on:
