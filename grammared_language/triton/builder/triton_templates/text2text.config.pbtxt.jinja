@@ -1,6 +1,6 @@
 name: "{{ model_name }}"
 backend: "python"
-max_batch_size: 8
+max_batch_size: {{ max_batch_size }}
 
 # Hugging face model path. Parameters must follow this
 # key/value structure
@@ -53,6 +53,8 @@ parameters: {
 
 # Dynamic batching for better throughput
 dynamic_batching {
-  preferred_batch_size: [1, 2, 4, 8]
-  max_queue_delay_microseconds: 750
+{% if preferred_batch_sizes %}
+  preferred_batch_size: [{{ preferred_batch_sizes | join(', ') }}]
+{% endif %}
+  max_queue_delay_microseconds: {{ max_queue_delay_microseconds }}
 }

@@ -90,6 +90,25 @@ class TestCreateClientFromConfig:
         call_kwargs = mock_gector.call_args[1]
         assert call_kwargs['pretrained_model_name_or_path'] == 'test-model'
         assert call_kwargs['triton_model_name'] == 'test_triton_model'
+
+    @patch('grammared_language.clients.gector_client.GectorClient')
+    def test_gector_prediction_batch_size_comes_from_inference_config(self, mock_gector):
+        """GECToR helper chunking is not coupled to Triton scheduler batching."""
+        config = {
+            'type': 'gector',
+            'serving_config': {
+                'pretrained_model_name_or_path': 'test-model',
+                'triton_model_name': 'test_triton_model',
+                'max_batch_size': 32,
+            },
+            'model_inference_config': {'batch_size': 3},
+        }
+
+        create_client_from_config('test_model', config)
+
+        call_kwargs = mock_gector.call_args[1]
+        assert call_kwargs['batch_size'] == 3
+        assert 'max_batch_size' not in call_kwargs
     
     @patch('grammared_language.clients.grammar_classification_client.GrammarClassificationClient')
     def test_create_grammared_classifier_client(self, mock_classifier):
