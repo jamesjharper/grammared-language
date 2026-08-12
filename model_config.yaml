@@ -32,7 +32,7 @@ coedit_large:
         max_batch_size: 8 # largest single inference batch Triton may execute
         # Target sizes for Triton's dynamic batcher; use null to omit targets.
         preferred_batch_sizes: [1, 2, 4, 8]
-        
+
         # Maximum time Triton waits to form a dynamic batch, in microseconds.
         max_queue_delay_microseconds: 750
 
@@ -40,6 +40,9 @@ coedit_large:
         # CoEdIT/ONNX model initialization batch setting; not a Triton limit.
         batch_size: 8
     model_inference_config:
+        # - do_sample: false (default): deterministic decoding, typically greedy/beam search. temperature has no effect.
+        # - do_sample: true: introduces controlled variation. Lower temperature (e.g. 0.3) is more conservative; higher (e.g. 0.8–1.0) is more varied.
         temperature: 0.8
+        do_sample: true
     grammared_config:
         prompt_template: "Fix grammatical errors: {{ text }}"

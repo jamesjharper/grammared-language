@@ -7,7 +7,7 @@ import yaml
 import os
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-# Prevent circular dependancy 
+# Prevent circular dependancy
 if TYPE_CHECKING:
     from grammared_language.clients.base_client import BaseClient
 
@@ -74,13 +74,24 @@ class ModelInitConfig(BaseModel):
 
 
 class ModelInferenceConfig(BaseModel):
-    """Configuration for model inference settings."""
+    """Validated generation settings shared by text-to-text models.
+
+    ``temperature`` is only accepted with ``do_sample: true`` because Hugging
+    Face ignores it for deterministic generation.
+    """
     
     model_config = ConfigDict(extra='allow')
     
-    # temperature: Optional[float] = None
-    # max_length: Optional[int] = None
-    # num_beams: Optional[int] = None
+    temperature: Optional[float] = Field(default=None, gt=0)
+    max_length: Optional[int] = Field(default=None, ge=1)
+    num_beams: Optional[int] = Field(default=None, ge=1)
+    do_sample: bool = False
+
+    @model_validator(mode="after")
+    def validate_temperature_requires_sampling(self):
+        if self.temperature is not None and not self.do_sample:
+            raise ValueError("temperature requires do_sample=true")
+        return self
 
 
 class GectorInferenceConfig(ModelInferenceConfig):
@@ -114,9 +125,9 @@ class BaseModelConfig(BaseModel):
     
     # Nested config format
     serving_config: ServingConfig
-    model_init_config: Optional[ModelInitConfig] = Field(default=ModelInitConfig(), alias='model_config')
-    model_inference_config: Optional[ModelInferenceConfig] = ModelInferenceConfig()
-    grammared_config: Optional[GrammaredConfig] = GrammaredConfig()
+    model_init_config: ModelInitConfig = Field(default_factory=ModelInitConfig)
+    model_inference_config: ModelInferenceConfig = Field(default_factory=ModelInferenceConfig)
+    grammared_config: GrammaredConfig = Field(default_factory=GrammaredConfig)
 
 class GectorConfig(BaseModelConfig):
     """Configuration for GECToR models."""
@@ -342,7 +353,10 @@ def create_client_from_config(
         elif isinstance(config, CoEditConfig):
             from grammared_language.clients.coedit_client import CoEditClient
             
-            client_params = vars(config.serving_config)
+            client_params = config.serving_config.model_dump()
+            # The repository builder and the client must use the same served
+            # name; the logical YAML key is not a Triton model identifier.
+            client_params["model_name"] = client_params.pop("triton_model_name") or model_name
             client_params.update(vars(config.grammared_config) if config.grammared_config else {})
             
             logger.warning(f"Creating CoEditClient with params: {client_params}")

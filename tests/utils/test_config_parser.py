@@ -338,12 +338,13 @@ class TestNestedConfigStructure:
                 'backend': 'ort',
                 'device': 'cpu'
             },
-            'model_config': {
+            'model_init_config': {
                 'load_in_4bit': False
             },
             'model_inference_config': {
                 'temperature': 0.8,
-                'max_length': 512
+                'max_length': 512,
+                'do_sample': True,
             },
             'grammared_config': {
                 'prompt_template': 'Fix grammatical errors: {{ text }}'
@@ -358,7 +359,22 @@ class TestNestedConfigStructure:
         assert config.serving_config.triton_port == 8001
         assert config.serving_config.triton_model_name == 'coedit'
         assert config.model_inference_config.temperature == 0.8
+        assert config.model_init_config.load_in_4bit is False
         assert config.grammared_config.prompt_template == 'Fix grammatical errors: {{ text }}'
+
+    @patch('grammared_language.clients.coedit_client.CoEditClient')
+    def test_coedit_uses_served_triton_name_not_logical_name(self, mock_coedit):
+        config = {
+            'type': 'coedit',
+            'serving_config': {
+                'pretrained_model_name_or_path': 'test-model',
+                'triton_model_name': 'actual_triton_name',
+            },
+        }
+
+        create_client_from_config('my_coedit', config)
+
+        assert mock_coedit.call_args.kwargs['model_name'] == 'actual_triton_name'
     
     
     def test_config_requires_serving_config(self):

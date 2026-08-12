@@ -23,7 +23,11 @@ coedit_large:
     model_init_config:
         batch_size: 8
     model_inference_config:
+       # - do_sample: false (default): deterministic decoding, typically greedy/beam search. temperature has no effect.
+       # - do_sample: true: introduces controlled variation. Lower temperature (e.g. 0.3) is more conservative; higher (e.g. 0.8–1.0) is more varied.
         temperature: 0.8
+        do_sample: true
+
     grammared_config:
         prompt_template: "Fix grammatical errors: {{ text }}"
 

@@ -41,6 +41,19 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 DEFAULT_MODEL_BACKEND = "transformers"
+GENERATION_KWARG_NAMES = ("temperature", "max_length", "num_beams", "do_sample")
+
+
+def generation_kwargs_from_config(model_inference_config):
+    """Return only supported Hugging Face generation kwargs from configuration."""
+    values = model_inference_config.model_dump()
+    return {
+        name: values[name]
+        for name in GENERATION_KWARG_NAMES
+        if name in values and values[name] is not None
+    }
+
+
 def load_pipeline_from_config(model_config:BaseModelConfig, task="text2text-generation", backend:str="transformers", fallback:bool=True, **kwargs):
     """Load a HuggingFace model based on the provided configuration.
 
@@ -114,10 +127,10 @@ class TritonTransformersPythonModel:
         )
         self.grammared_language_model_config = get_model_config(self.model_config.get("name", "transfomers_model"), self.grammared_language_model_config)
 
-        default_max_gen_length = 30
-        self.max_output_length = default_max_gen_length
-        if hasattr(self.grammared_language_model_config.model_inference_config, 'max_length'):
-            self.max_output_length = self.grammared_language_model_config.model_inference_config.max_length
+        self.generation_kwargs = generation_kwargs_from_config(
+            self.grammared_language_model_config.model_inference_config
+        )
+        self.generation_kwargs.setdefault("max_length", 30)
         # Check for user-specified model name in model config parameters
         hf_model = self.model_params.get("pretrained_model_name_or_path", {}).get(
             "string_value", self.DEFAULT_HF_MODEL
@@ -181,7 +194,7 @@ class TritonTransformersPythonModel:
         """Generate text for a batch of prompts."""
         sequences = self.pipeline(
             prompts,
-            max_length=self.max_output_length,
+            **self.generation_kwargs,
         )
         all_texts = [seq["generated_text"] for seq in sequences]
         logger.warning(f"Generated: {all_texts}")
