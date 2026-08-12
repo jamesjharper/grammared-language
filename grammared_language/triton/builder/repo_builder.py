@@ -1,5 +1,7 @@
 # from .triton.triton_templates import
 import json
+import shutil
+import logging
 from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 import yaml
@@ -7,6 +9,8 @@ from grammared_language.utils .config_parser import BaseModelConfig, ModelsConfi
 from grammared_language.utils import config_parser
 
 DEFAULT_TEMPLATE_FOLDER = str(Path(__file__).parent / "triton_templates")
+GENERATED_MANIFEST_FILENAME = ".grammared-language-generated-models.json"
+logger = logging.getLogger(__name__)
 
 SUPPORTED_MODEL_TYPES = ("gector", "grammared_classifier", "coedit", "text2text")
 
@@ -68,6 +72,42 @@ class TritonRepoBuilder:
                     model_config=model_config,
                     repo_folder=repo_folder
             )
+
+    def reconcile_model_repo(self, repo_folder: str, config: ModelsConfig):
+        """Synchronize Grammared-owned model directories with ``config``.
+
+        The manifest means a pre-existing user directory is never removed.
+        Generated files are only rewritten when their rendered contents differ.
+        """
+        repo_path = Path(repo_folder)
+        repo_path.mkdir(parents=True, exist_ok=True)
+        manifest_path = repo_path / GENERATED_MANIFEST_FILENAME
+        previous_names = set()
+        if manifest_path.is_file():
+            try:
+                previous_names = set(json.loads(manifest_path.read_text()).get("models", []))
+            except (OSError, json.JSONDecodeError):
+                logger.warning("Ignoring invalid generated-model manifest: %s", manifest_path)
+
+        desired = {}
+        for logical_name, model_config in config.models.items():
+            if model_config.type not in SUPPORTED_MODEL_TYPES:
+                raise ValueError(f"Unsupported model type: {model_config.type}")
+            name = model_config.serving_config.triton_model_name or logical_name
+            if name in desired:
+                raise ValueError(f"Duplicate Triton model name: {name}")
+            desired[name] = model_config
+
+        for stale_name in previous_names - set(desired):
+            stale_path = repo_path / stale_name
+            if stale_path.is_dir() and stale_path.parent.resolve() == repo_path.resolve():
+                shutil.rmtree(stale_path)
+
+        for name, model_config in desired.items():
+            self._build_model_repo(name, model_config, str(repo_path))
+
+        manifest_contents = json.dumps({"models": sorted(desired)}, indent=2) + "\n"
+        self._write_if_changed(manifest_path, manifest_contents)
             
     def _build_model_repo(self, name:str, model_config:BaseModelConfig, repo_folder:str, model_version:int=1):
         model_type = model_config.type
@@ -93,8 +133,10 @@ class TritonRepoBuilder:
         model_file = self.jinja_env.get_template(template_files["model"]).render()
         Path(output_folder).mkdir(parents=True, exist_ok=True)
         Path(model_folder).mkdir(parents=True, exist_ok=True)
-        with open(output_folder / "config.pbtxt", "w") as f:
-            f.write(config_file)
+        self._write_if_changed(output_folder / "config.pbtxt", config_file)
+        self._write_if_changed(model_folder / "model.py", model_file)
 
-        with open(model_folder / "model.py", "w") as f:
-            f.write(model_file)
+    @staticmethod
+    def _write_if_changed(path: Path, contents: str):
+        if not path.is_file() or path.read_text() != contents:
+            path.write_text(contents)
