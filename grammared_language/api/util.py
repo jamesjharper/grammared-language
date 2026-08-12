@@ -28,3 +28,8 @@ class SimpleCacheStore:
         with self._lock:
             self.store.move_to_end(text)
             return self.store.get(text)
+
+    def clear(self):
+        """Remove all entries from the cache."""
+        with self._lock:
+            self.store.clear()
