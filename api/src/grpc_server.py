@@ -132,11 +132,11 @@ def activate_client(new_client):
         old_client = correction_multi_client
         correction_multi_client = new_client
         _model_generation += 1
+        invalidate_model_result_caches()
         logger.info("Clients reloaded successfully")
 
     # Generation-qualified keys prevent an old in-flight request from making
     # its result visible to requests using the newly activated client.
-    invalidate_model_result_caches()
     _retire_client(old_client)
 
 

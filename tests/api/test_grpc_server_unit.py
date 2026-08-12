@@ -182,6 +182,43 @@ def test_reload_invalidates_grammar_result_caches():
     assert old_client.closed
 
 
+def test_old_in_flight_cache_write_is_not_visible_after_reload():
+    old_started = threading.Event()
+    allow_old_finish = threading.Event()
+
+    class BlockingOldClient(RecordingClient):
+        def predict_with_merge(self, texts):
+            self.calls.append(texts)
+            old_started.set()
+            assert allow_old_finish.wait(timeout=3)
+            return [result_for("old") for _ in texts]
+
+    old_client = BlockingOldClient()
+    new_client = RecordingClient("new")
+    servicer = grpc_server.ProcessingServerServicer()
+    grpc_server.activate_client(old_client)
+
+    old_request = threading.Thread(
+        target=lambda: servicer.Process(process_request("same"), Mock())
+    )
+    old_request.start()
+    assert old_started.wait(timeout=1)
+
+    reload_thread = threading.Thread(target=grpc_server.activate_client, args=(new_client,))
+    reload_thread.start()
+
+    # The reload waits only for retirement; the new generation is immediately usable.
+    assert descriptions(servicer.Process(process_request("same"), Mock())) == ["new"]
+    allow_old_finish.set()
+    old_request.join(timeout=3)
+    reload_thread.join(timeout=3)
+
+    assert not old_request.is_alive()
+    assert not reload_thread.is_alive()
+    assert descriptions(servicer.Process(process_request("same"), Mock())) == ["new"]
+    assert new_client.calls == [["same"]]
+
+
 def test_simple_cache_store_clear():
     cache = grpc_server.SimpleCacheStore()
     cache.add("key", "value")
