@@ -178,7 +178,7 @@ coedit_large:
     # for example simplification, neutralization, formalization and
     # paraphrasing. The paper specifically demonstrates that task-specific
     # instruction quality matters: training with instructions randomly assigned
-    # to the wrong editing task substantially reduced edit accuracy. :contentReference[oaicite:1]{index=1}
+    # to the wrong editing task substantially reduced edit accuracy.
     #
     # NOTE: CoEdIT can generalize to some unseen but related instructions. The paper
     # also investigates composite instructions containing multiple requested
@@ -186,7 +186,7 @@ coedit_large:
     # However, the paper's dedicated composite model (COEDIT-XL-C) was trained
     # on an expanded composite-instruction dataset, so arbitrary multi-part
     # prompts should not be assumed to behave as reliably as a focused
-    # single-task instruction with the standard CoEdIT models. :contentReference[oaicite:2]{index=2}
+    # single-task instruction with the standard CoEdIT models.
     #
     # For normal grammar checking, prefer a short, explicit grammar instruction.
     # The additional capitalization constraint below is intended to make the
