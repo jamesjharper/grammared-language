@@ -56,6 +56,22 @@ class TestText2TextBaseClient:
         assert client.output_name == "custom_output"
         assert client.prompt_template == "Fix grammar: {{ text }}"
         mock_client_class.assert_called_once_with(url="custom-host:9000")
+
+    @patch('grammared_language.clients.text2text_base_client.grpcclient')
+    def test_explicit_rule_id_is_used_for_language_tool_matches(self, mock_grpcclient):
+        mock_grpcclient.InferenceServerClient = Mock()
+
+        client = Text2TextBaseClient(
+            model_name="coedit_large_v2",
+            rule_id="COEDIT_LARGE",
+        )
+        result = client._pred_postprocess(
+            "This are a test.",
+            "This is a test.",
+        )
+
+        assert result.matches
+        assert {match.id for match in result.matches} == {"COEDIT_LARGE"}
     
     @patch('grammared_language.clients.text2text_base_client.grpcclient')
     def test_preprocess_without_template(self, mock_grpcclient):

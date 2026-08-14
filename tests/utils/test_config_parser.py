@@ -375,6 +375,97 @@ class TestNestedConfigStructure:
         create_client_from_config('my_coedit', config)
 
         assert mock_coedit.call_args.kwargs['model_name'] == 'actual_triton_name'
+        assert mock_coedit.call_args.kwargs['rule_id'] == 'my_coedit'
+
+    @pytest.mark.parametrize(
+        ('serving_overrides', 'grammared_overrides', 'expected_served_name', 'expected_rule_id'),
+        [
+            ({}, {}, 'coedit_large', 'coedit_large'),
+            (
+                {'triton_model_name': 'coedit_large_v2'},
+                {},
+                'coedit_large_v2',
+                'coedit_large',
+            ),
+            ({}, {'rule_id': 'COEDIT_LARGE'}, 'coedit_large', 'COEDIT_LARGE'),
+            (
+                {'triton_model_name': 'coedit_large_v2'},
+                {'rule_id': 'COEDIT_LARGE'},
+                'coedit_large_v2',
+                'COEDIT_LARGE',
+            ),
+        ],
+    )
+    @patch('grammared_language.clients.coedit_client.CoEditClient')
+    def test_coedit_identity_defaults_are_independent(
+        self,
+        mock_coedit,
+        serving_overrides,
+        grammared_overrides,
+        expected_served_name,
+        expected_rule_id,
+    ):
+        create_client_from_config(
+            'coedit_large',
+            {
+                'type': 'coedit',
+                'backend': 'triton',
+                'serving_config': {
+                    'pretrained_model_name_or_path': 'rayliuca/coedit-large-onnx',
+                    **serving_overrides,
+                },
+                'grammared_config': grammared_overrides,
+            },
+        )
+
+        kwargs = mock_coedit.call_args.kwargs
+        assert kwargs['model_name'] == expected_served_name
+        assert kwargs['rule_id'] == expected_rule_id
+
+    @patch('grammared_language.clients.gector_client.GectorClient')
+    def test_gector_triton_and_rule_defaults_use_logical_name(self, mock_gector):
+        create_client_from_config(
+            'gector_logical',
+            {
+                'type': 'gector',
+                'backend': 'triton',
+                'serving_config': {
+                    'pretrained_model_name_or_path': 'publisher/gector-artifact',
+                },
+            },
+        )
+
+        kwargs = mock_gector.call_args.kwargs
+        assert kwargs['pretrained_model_name_or_path'] == 'publisher/gector-artifact'
+        assert kwargs['triton_model_name'] == 'gector_logical'
+        assert kwargs['rule_id'] == 'gector_logical'
+
+    @patch('grammared_language.clients.text2text_base_client.grpcclient')
+    def test_coedit_configured_rule_id_reaches_language_tool_matches(self, mock_grpcclient):
+        """Smoke test the complete config -> client -> LanguageTool Match.id path."""
+        mock_grpcclient.InferenceServerClient = Mock()
+
+        client = create_client_from_config(
+            'coedit_large',
+            {
+                'type': 'coedit',
+                'backend': 'triton',
+                'serving_config': {
+                    'pretrained_model_name_or_path': 'rayliuca/coedit-large-onnx',
+                    'triton_model_name': 'coedit_large_smoke',
+                },
+                'grammared_config': {'rule_id': 'SMOKE_COEDIT_RULE'},
+            },
+        )
+
+        assert client is not None
+        assert client.model_name == 'coedit_large_smoke'
+        result = client._pred_postprocess(
+            'This are a test.',
+            'This is a test.',
+        )
+        assert result.matches
+        assert {match.id for match in result.matches} == {'SMOKE_COEDIT_RULE'}
     
     
     def test_config_requires_serving_config(self):
