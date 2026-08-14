@@ -109,6 +109,21 @@ class GrammaredConfig(BaseModel):
     
     prompt_template: Optional[str] = None
     error_classifier: Optional[str] = None
+    rule_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "LanguageTool-facing correction rule ID. When omitted, the logical YAML model name is used."
+        ),
+    )
+
+
+def _grammared_client_params(
+    logical_name: str, grammared_config: GrammaredConfig
+) -> Dict[str, Any]:
+    """Return correction-client settings with a logical-name rule default."""
+    params = grammared_config.model_dump(exclude_none=True)
+    params.setdefault("rule_id", logical_name)
+    return params
 
 
 class BaseModelConfig(BaseModel):
@@ -336,7 +351,14 @@ def create_client_from_config(
                 }
             )
             client_params.update(config.model_inference_config.model_dump())
-            client_params.update(vars(config.grammared_config) if config.grammared_config else {})
+            # Configured Triton models default their serving identity to the
+            # logical YAML key, never to their source artifact.
+            client_params["triton_model_name"] = (
+                client_params.get("triton_model_name") or model_name
+            )
+            client_params.update(
+                _grammared_client_params(model_name, config.grammared_config)
+            )
             
             return GectorClient(**client_params)
         
@@ -354,10 +376,12 @@ def create_client_from_config(
             from grammared_language.clients.coedit_client import CoEditClient
             
             client_params = config.serving_config.model_dump()
-            # The repository builder and the client must use the same served
-            # name; the logical YAML key is not a Triton model identifier.
+            # Serving and rule identities default independently from the
+            # logical YAML key.
             client_params["model_name"] = client_params.pop("triton_model_name") or model_name
-            client_params.update(vars(config.grammared_config) if config.grammared_config else {})
+            client_params.update(
+                _grammared_client_params(model_name, config.grammared_config)
+            )
             
             logger.warning(f"Creating CoEditClient with params: {client_params}")
             return CoEditClient(**client_params)
