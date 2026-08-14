@@ -1,0 +1,195 @@
+gector_deberta_large:
+  # Model type. GECToR performs token-level grammatical error correction.
+  type: gector
+
+  # Use Triton Inference Server to host and execute the model.
+  backend: triton
+
+  model_inference_config:
+    # Maximum batch size passed to one GECToR prediction call.
+    #
+    # LanguageTool can send multiple sentences to Grammared in one request.
+    # Grammared collects those sentences and passes them to GECToR as a batch.
+    #
+    # This value controls the maximum number of sentences GECToR will pass
+    # together to its inference backend in one prediction call.
+    #
+    # This is separate from Triton's dynamic batching configuration below.
+    batch_size: 8
+
+  serving_config:
+    # Triton gRPC endpoint.
+    triton_host: triton-server
+    triton_port: 8001
+    triton_protocol: grpc
+
+    # Hugging Face model repository or local model path.
+    pretrained_model_name_or_path: "gotutiyan/gector-deberta-large-5k"
+
+    # Device used by the model backend. {cuda|cpu|auto}
+    device: cuda
+
+    # Triton can opportunistically combine separate inference requests into
+    # a larger batch before executing them.
+    #
+    # This is the maximum amount of time Triton may wait for additional
+    # requests to arrive so they can be combined into a larger batch.
+    #
+    # GECToR is relatively fast, so a short batching window is recommended
+    # to avoid adding unnecessary latency.
+    max_queue_delay_microseconds: 350
+
+    # Maximum batch size Triton may execute in a single inference operation.
+    #
+    # If enough compatible requests are already queued to form a useful batch,
+    # Triton does not need to wait for max_queue_delay_microseconds to expire.
+    max_batch_size: 8
+
+    # Batch sizes Triton's dynamic batcher should preferentially try to form.
+    #
+    # These values must not exceed max_batch_size.
+    # Triton may still execute other batch sizes when appropriate.
+    # Recommended to use values of 2^n
+    preferred_batch_sizes: [1, 2, 4, 8]
+
+coedit_large:
+  # Logical model ID. It is the default for both Triton serving name and
+  # LanguageTool rule ID; it is not the source-artifact identifier.
+  # CoEdIT is an instruction-based text-to-text editing model.
+  type: coedit
+
+  # Use Triton Inference Server to host and execute the model.
+  backend: triton
+  
+  model_init_config:
+    # Batch size used internally by the Hugging Face/ONNX text-generation
+    # pipeline when processing multiple inputs.
+    #
+    # Grammared can pass a batch of sentences to Triton, and Triton passes that
+    # batch to the CoEdIT pipeline. This value controls how many of those inputs
+    # the underlying pipeline processes together at a time.
+    #
+    # This is separate from Triton's dynamic batching configuration below.
+    batch_size: 8
+
+  serving_config:
+    # Triton gRPC endpoint.
+    triton_host: triton-server
+    triton_port: 8001
+    triton_protocol: grpc
+
+    # Source Hugging Face model repository or local model path.
+    pretrained_model_name_or_path: "rayliuca/coedit-large-onnx"
+
+    # Optional Triton deployment name. If omitted, defaults to the YAML key.
+    # triton_model_name: coedit_large
+
+    # ONNX Runtime backend used by the Triton Python model.
+    backend: ort
+
+    # Device used by the model backend. {cuda|cpu|auto}
+    device: cuda
+
+    # Triton can opportunistically combine separate inference requests into
+    # a larger batch before executing them.
+    #
+    # This is the maximum amount of time Triton may wait for additional
+    # requests to arrive so they can be combined into a larger batch.
+    #
+    # > CoEdIT inference is relatively expensive, so allowing a slightly
+    # longer batching window can improve utilization without materially
+    # increasing end-to-end latency.
+    max_queue_delay_microseconds: 750
+
+    # Maximum batch size Triton may execute in a single inference operation.
+    #
+    # If enough compatible requests are already queued to form a useful batch,
+    # Triton does not need to wait for max_queue_delay_microseconds to expire.
+    max_batch_size: 8
+
+    # Batch sizes Triton's dynamic batcher should preferentially try to form.
+    #
+    # These values must not exceed max_batch_size.
+    # Triton may still execute other batch sizes when appropriate.
+    # Recommended to use values of 2^n
+    preferred_batch_sizes: [1, 2, 4, 8]
+
+
+  model_inference_config:
+    # Whether generation should use stochastic sampling.
+    #
+    # false:
+    #   Deterministic output. Recommended for grammar correction because
+    #   identical input produces identical corrections.
+    #
+    # true:
+    #   Enables probabilistic generation and allows temperature to influence
+    #   the result. More appropriate for creative or alternative rewrites.
+    do_sample: false
+
+    # Sampling temperature.
+    #
+    # Only relevant when do_sample is true. Lower values are more conservative;
+    # higher values produce more varied output.
+    #
+    # Leave null for deterministic grammar correction.
+    temperature: null
+
+    # Number of beams used during sequence generation.
+    #
+    # 1 means greedy decoding and is recommended for normal grammar correction.
+    # Increasing this can make decoding significantly more expensive.
+    num_beams: 1
+
+    # Maximum generated sequence length.
+    #
+    # 128 is suitable for normal sentence-level correction while leaving enough
+    # room for longer technical sentences.
+    max_length: 128
+
+  grammared_config:
+
+    # Optional LanguageTool Match.id. If omitted, defaults to the YAML key,
+    # not serving_config.triton_model_name.
+    # rule_id: coedit_large
+
+    # Instruction supplied to CoEdIT for every input sentence.
+    # This can drastically drastically alter the behavior of CoEdIT, for better or worse!
+    #
+    # CoEdIT is an instruction-tuned text editing model. 
+    # The published CoEdIT paper reports training on roughly 82,000 task-specific instruction/source/target 
+    # examples spanning grammar, fluency, clarity, coherence, simplification, paraphrasing, formality and
+    # other writing-assistance tasks.
+    #
+    # For grammatical error correction, the paper uses several equivalent
+    # task-specific instruction phrasings, including forms such as:
+    #
+    #   "Fix grammar"
+    #   "Fix grammatical errors"
+    #   "Fix all grammatical errors"
+    #   "Make the sentence grammatical"
+    #
+    # 
+    # IMPORTATNT: This means prompt wording should normally stay close to the task
+    # instructions CoEdIT was trained to recognize rather than being treated
+    # like a free-form chat/system prompt.
+    #
+    # The model is also capable of responding to other editing instructions,
+    # for example simplification, neutralization, formalization and
+    # paraphrasing. The paper specifically demonstrates that task-specific
+    # instruction quality matters: training with instructions randomly assigned
+    # to the wrong editing task substantially reduced edit accuracy. :contentReference[oaicite:1]{index=1}
+    #
+    # NOTE: CoEdIT can generalize to some unseen but related instructions. The paper
+    # also investigates composite instructions containing multiple requested
+    # edits, such as simplifying, paraphrasing and formalizing in one request.
+    # However, the paper's dedicated composite model (COEDIT-XL-C) was trained
+    # on an expanded composite-instruction dataset, so arbitrary multi-part
+    # prompts should not be assumed to behave as reliably as a focused
+    # single-task instruction with the standard CoEdIT models. :contentReference[oaicite:2]{index=2}
+    #
+    # For normal grammar checking, prefer a short, explicit grammar instruction.
+    # The additional capitalization constraint below is intended to make the
+    # correction more conservative while retaining the grammatical task.
+    #
+    prompt_template: "Make the sentence grammatical; keep capitalization : {{text}}"
