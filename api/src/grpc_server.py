@@ -217,7 +217,11 @@ def pydantic_match_to_ml_match(match, offset_adjustment: int = 0) -> ml_server_p
         ],
         autoCorrect=True,
         type=ml_server_pb2.Match.MatchType.UnknownWord,  # Grammar errors are "Other" type
-        contextForSureMatch=0,
+        contextForSureMatch=(
+            match.contextForSureMatch
+            if match.contextForSureMatch is not None
+            else 0
+        ),
         rule=ml_server_pb2.Rule(
             sourceFile=match.rule.id or "grammared_language",
             issueType=match.rule.issueType or "style",

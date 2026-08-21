@@ -15,6 +15,7 @@ from grammared_language.utils.config_parser import (
     GrammaredClassifierConfig,
     CoEditConfig,
     ServingConfig
+    , GrammaredConfig, load_config_from_env
 )
 
 
@@ -471,6 +472,7 @@ class TestNestedConfigStructure:
         )
         assert result.matches
         assert {match.id for match in result.matches} == {'SMOKE_COEDIT_RULE'}
+        assert {match.contextForSureMatch for match in result.matches} == {-1}
     
     
     def test_config_requires_serving_config(self):
@@ -481,3 +483,46 @@ class TestNestedConfigStructure:
                 backend='triton'
                 # Missing serving_config
             )
+
+
+class TestLanguageToolMetadataConfig:
+    def test_defaults_are_safe_for_ml_corrections(self):
+        config = GrammaredConfig()
+
+        assert config.context_for_sure_match == "complete_sentences_only"
+
+    def test_explicit_values_are_validated_and_propagated(self):
+        config = GrammaredConfig(context_for_sure_match=3)
+
+        assert config.context_for_sure_match == 3
+
+    @pytest.mark.parametrize("value", [0, 3, "complete_sentences_only"])
+    def test_context_for_sure_match_accepts_supported_values(self, value):
+        assert GrammaredConfig(context_for_sure_match=value).context_for_sure_match == value
+
+    @pytest.mark.parametrize("value", [-1, -2, True, "-1"])
+    def test_context_for_sure_match_rejects_invalid_values(self, value):
+        with pytest.raises(ValueError, match="context_for_sure_match"):
+            GrammaredConfig(context_for_sure_match=value)
+
+    def test_yaml_loads_language_tool_metadata(self, tmp_path):
+        path = tmp_path / "models.yaml"
+        path.write_text(
+            "coedit:\n"
+            "  type: coedit\n"
+            "  serving_config: {}\n"
+            "  grammared_config:\n"
+            "    context_for_sure_match: complete_sentences_only\n"
+        )
+
+        config = load_config_from_file(str(path)).models["coedit"].grammared_config
+        assert config.context_for_sure_match == "complete_sentences_only"
+
+    def test_environment_loads_negative_language_tool_metadata(self, monkeypatch):
+        prefix = "GRAMMARED_LANGUAGE_TEST"
+        monkeypatch.setenv(f"{prefix}__MODELS__COEDIT__TYPE", "coedit")
+        monkeypatch.setenv(f"{prefix}__MODELS__COEDIT__SERVING_CONFIG__TRITON_HOST", "localhost")
+        monkeypatch.setenv(f"{prefix}__MODELS__COEDIT__GRAMMARED_CONFIG__CONTEXT_FOR_SURE_MATCH", "complete_sentences_only")
+
+        config = load_config_from_env(prefix).models["coedit"].grammared_config
+        assert config.context_for_sure_match == "complete_sentences_only"

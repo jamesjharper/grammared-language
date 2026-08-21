@@ -9,6 +9,17 @@ from grammared_language.utils.errant_grammar_correction_extractor import ErrantG
 class BaseClient:
     def __init__(self, *args, **kwargs):
         self.rule_id = kwargs.get("rule_id", "GrammaredLanguage")
+        # These are applied before the per-client sentence cache is populated,
+        # so cached and freshly inferred results have identical LT metadata.
+        configured_context = kwargs.get(
+            "context_for_sure_match", "complete_sentences_only"
+        )
+        # -1 is what LT expects for "complete_sentences_only"
+        self.context_for_sure_match = (
+            -1
+            if configured_context == "complete_sentences_only"
+            else configured_context
+        )
         print(f"Initialized BaseClient with rule_id: {self.rule_id}")
         self.correction_extractor = ErrantGrammarCorrectionExtractor(rule_id=self.rule_id)
         self._cache_size = int(
@@ -29,14 +40,23 @@ class BaseClient:
         matches = self.correction_extractor.extract_replacements(
             original=original, corrected=pred, fix_tokenization=kwargs.get('fix_tokenization', True)
         )
-        return LanguageToolRemoteResult(
+        result = LanguageToolRemoteResult(
             language="English",
             languageCode="en-US",
             matches=matches
         )
+        return self._apply_language_tool_metadata(result)
+
+    def _apply_language_tool_metadata(
+        self, result: LanguageToolRemoteResult
+    ) -> LanguageToolRemoteResult:
+        """Attach immutable per-model LT metadata before the result is cached."""
+        for match in result.matches:
+            match.contextForSureMatch = self.context_for_sure_match
+        return result
     
     def _output_postprocess(self, original: str, pred: LanguageToolRemoteResult, **kwargs) -> LanguageToolRemoteResult:
-        return pred
+        return self._apply_language_tool_metadata(pred)
 
     def predict(self, text: str|list[str]) -> LanguageToolRemoteResult|list[LanguageToolRemoteResult]:
         """Predict one text or a model-oriented batch using the sentence cache."""

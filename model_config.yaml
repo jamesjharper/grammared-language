@@ -15,6 +15,10 @@ gector_deberta_large:
   model_inference_config:
     batch_size: 8
 
+  grammared_config:
+    # GEC rewrites are stable only after the sentence is complete.
+    context_for_sure_match: complete_sentences_only
+
 
 coedit_large:
   type: coedit
@@ -49,4 +53,5 @@ coedit_large:
     max_length: 128
 
   grammared_config:
+    context_for_sure_match: complete_sentences_only
     prompt_template: "Make the sentence grammatical; keep capitalization : {{text}}"
