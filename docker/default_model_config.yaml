@@ -22,4 +22,5 @@ coedit_large:
     model_init_config:
         batch_size: 4
     grammared_config:
+        context_for_sure_match: complete_sentences_only
         prompt_template: "Fix grammatical errors: {{ text }}"

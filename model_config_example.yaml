@@ -52,6 +52,21 @@ gector_deberta_large:
     # Recommended to use values of 2^n
     preferred_batch_sizes: [1, 2, 4, 8]
 
+  grammared_config:
+    # LanguageTool check-as-you-type context.
+    #
+    # complete_sentences_only means the sentence must end before this ML correction is considered
+    # stable. This is recommended for GEC models such as GECToR and CoEdIT,
+    # which can otherwise produce unstable corrections while a sentence is
+    # still being typed.
+    #
+    # 0 means the match is immediately stable.
+    # A positive value means that many following words are required.
+    #
+    # LanguageTool derives its incomplete-sentence client behavior from this
+    # value.
+    context_for_sure_match: complete_sentences_only
+
 coedit_large:
   # Logical model ID. It is the default for both Triton serving name and
   # LanguageTool rule ID; it is not the source-artifact identifier.
@@ -151,6 +166,10 @@ coedit_large:
     # Optional LanguageTool Match.id. If omitted, defaults to the YAML key,
     # not serving_config.triton_model_name.
     # rule_id: coedit_large
+
+    # LanguageTool check-as-you-type context. See the GECToR example above
+    # for the complete semantics. GEC corrections should wait for sentence end.
+    context_for_sure_match: complete_sentences_only
 
     # Instruction supplied to CoEdIT for every input sentence.
     # This can drastically drastically alter the behavior of CoEdIT, for better or worse!

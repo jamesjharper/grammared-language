@@ -1,5 +1,6 @@
 from grammared_language.clients.base_client import BaseClient
 from grammared_language.language_tool.output_models import LanguageToolRemoteResult
+from grammared_language.language_tool.output_models import Match
 
 
 class RecordingClient(BaseClient):
@@ -27,6 +28,32 @@ def test_scalar_prediction_uses_sentence_cache():
 
     assert client.predict_calls == ["A"]
     assert first is second
+
+
+def test_metadata_is_attached_before_cache_and_preserved_on_cache_hits():
+    class MetadataClient(RecordingClient):
+        def __init__(self):
+            BaseClient.__init__(
+                self,
+                context_for_sure_match="complete_sentences_only",
+            )
+            self.predict_calls = []
+
+        def _pred_postprocess(self, original, pred, **kwargs):
+            return self._apply_language_tool_metadata(LanguageToolRemoteResult(
+                language="English",
+                languageCode="en-US",
+                matches=[Match(offset=0, length=1)],
+            ))
+
+    client = MetadataClient()
+    first = client.predict("A")
+    second = client.predict("A")
+
+    assert client.predict_calls == ["A"]
+    assert first is second
+    match = first.matches[0]
+    assert match.contextForSureMatch == -1
 
 
 def test_sentence_cache_uses_lru_eviction(monkeypatch):

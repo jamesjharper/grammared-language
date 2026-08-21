@@ -79,6 +79,18 @@ def test_process_batches_unique_misses_and_preserves_order():
     assert grpc_server.process_cache_store.contains(cache_key)
 
 
+def test_grpc_serializer_preserves_language_tool_metadata():
+    grpc_match = grpc_server.pydantic_match_to_ml_match(
+        Match(
+            offset=3,
+            length=4,
+            contextForSureMatch=-1,
+        )
+    )
+
+    assert grpc_match.contextForSureMatch == -1
+
+
 def test_process_uses_cached_entries_without_inference():
     client = RecordingClient()
     grpc_server.activate_client(client)

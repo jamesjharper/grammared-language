@@ -103,7 +103,7 @@ class GectorInferenceConfig(ModelInferenceConfig):
 
 
 class GrammaredConfig(BaseModel):
-    """Configuration for grammared-specific settings."""
+    """LanguageTool-facing behavior shared by Grammared correction models."""
     
     model_config = ConfigDict(extra='allow')
     
@@ -115,6 +115,28 @@ class GrammaredConfig(BaseModel):
             "LanguageTool-facing correction rule ID. When omitted, the logical YAML model name is used."
         ),
     )
+    context_for_sure_match: Union[Literal["complete_sentences_only"], int] = Field(
+        default="complete_sentences_only",
+        description=(
+            "LanguageTool check-as-you-type context. Use "
+            "'complete_sentences_only' to require sentence completion, 0 for "
+            "an immediately stable match, or a positive number of following words."
+        ),
+    )
+
+    @field_validator("context_for_sure_match", mode="before")
+    @classmethod
+    def validate_context_for_sure_match(
+        cls, value: Any
+    ) -> Union[Literal["complete_sentences_only"], int]:
+        if value == "complete_sentences_only":
+            return value
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "context_for_sure_match must be 0 or positive, or "
+                "'complete_sentences_only'"
+            )
+        return value
 
 
 def _grammared_client_params(
@@ -319,7 +341,7 @@ def load_config_from_env(prefix: str = "GRAMMARED_LANGUAGE") -> ModelsConfig:
             if env_value.lower() in ('true', 'false'):
                 current[final_key] = env_value.lower() == 'true'
             # Try integer
-            elif env_value.isdigit():
+            elif env_value.lstrip("+-").isdigit():
                 current[final_key] = int(env_value)
             # Try float
             elif '.' in env_value and env_value.replace('.', '').replace('-', '').isdigit():
