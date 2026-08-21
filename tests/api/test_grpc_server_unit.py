@@ -1,7 +1,7 @@
 """Hermetic regression tests for gRPC batching and client lifecycle."""
 
 import threading
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -224,3 +224,15 @@ def test_simple_cache_store_clear():
     cache.add("key", "value")
     cache.clear()
     assert not cache.contains("key")
+
+
+def test_initialization_failure_prevents_runtime_from_becoming_ready():
+    """The gRPC server is not started until all configured clients initialize."""
+    with patch(
+        "api.src.grpc_server.create_clients_from_config",
+        side_effect=RuntimeError("configured CoEdIT unavailable"),
+    ):
+        with pytest.raises(RuntimeError, match="configured CoEdIT unavailable"):
+            grpc_server.initialize_clients(max_retries=1, retry_delay=0)
+
+    assert grpc_server.correction_multi_client is None

@@ -137,7 +137,7 @@ class BaseModelConfig(BaseModel):
         # 'local', # Local inference
         'openai' # OpenAI compatiable api
         ] = 'triton'
-    
+
     # Nested config format
     serving_config: ServingConfig
     model_init_config: ModelInitConfig = Field(default_factory=ModelInitConfig)
@@ -195,6 +195,32 @@ MODEL_CONFIG_REGISTRY = {
     'text2text': Text2TextConfig,
     'openai': OpenAIConfig,
 }
+
+
+class ModelClientInitializationError(RuntimeError):
+    """A configured model client could not be constructed.
+
+    The exception keeps the original failure as its cause while adding the
+    configuration identity operators need to diagnose a failed deployment.
+    """
+
+    def __init__(self, model_name: str, config: BaseModelConfig, cause: Exception):
+        serving = config.serving_config
+        endpoint = ""
+        if config.backend == "triton":
+            endpoint = (
+                f", triton_endpoint={serving.triton_protocol}://"
+                f"{serving.triton_host}:{serving.triton_port}, "
+                f"triton_model={serving.triton_model_name or model_name}"
+            )
+        super().__init__(
+            f"Failed to initialize configured model "
+            f"name={model_name!r}, type={config.type!r}, backend={config.backend!r}"
+            f"{endpoint}: {cause}"
+        )
+        self.model_name = model_name
+        self.model_type = config.type
+        self.backend = config.backend
 
 def get_model_config(model_name, model_config_dict: Dict[str, Any]) -> BaseModelConfig:
     model_type = model_config_dict.get('type')
@@ -318,7 +344,7 @@ def load_config_from_env(prefix: str = "GRAMMARED_LANGUAGE") -> ModelsConfig:
 def create_client_from_config(
     model_name: str, 
     config: Union[GectorConfig, GrammaredClassifierConfig, CoEditConfig, Dict[str, Any]]
-) -> Optional[BaseClient]:
+) -> BaseClient:
     """
     Create a client instance from configuration.
     
@@ -327,7 +353,12 @@ def create_client_from_config(
         config: Configuration (Pydantic model or dictionary)
         
     Returns:
-        Initialized client instance or None if creation fails
+        Initialized client instance.
+
+    Raises:
+        Exception: Any client import or construction error.  Failures are
+            handled by ``create_clients_from_config`` so configured models can
+            never be silently omitted.
     """
     # Convert dict to Pydantic model if needed
     if isinstance(config, dict):
@@ -336,60 +367,59 @@ def create_client_from_config(
             raise ValueError(f"Unknown model type for {model_name}: {model_type}")
         config = MODEL_CONFIG_REGISTRY[model_type](**config)
     
-    try:
-        # Import appropriate client class based on type
-        if isinstance(config, GectorConfig):
-            from grammared_language.clients.gector_client import GectorClient
-            
-            # Scheduler settings are consumed when rendering Triton's config;
-            # GECToR's prediction batch_size comes only from model_inference_config.
-            client_params = config.serving_config.model_dump(
-                exclude={
-                    'max_batch_size',
-                    'preferred_batch_sizes',
-                    'max_queue_delay_microseconds',
-                }
-            )
-            client_params.update(config.model_inference_config.model_dump())
-            # Configured Triton models default their serving identity to the
-            # logical YAML key, never to their source artifact.
-            client_params["triton_model_name"] = (
-                client_params.get("triton_model_name") or model_name
-            )
-            client_params.update(
-                _grammared_client_params(model_name, config.grammared_config)
-            )
-            
-            return GectorClient(**client_params)
-        
-        elif isinstance(config, GrammaredClassifierConfig):
-            from grammared_language.clients.grammar_classification_client import GrammarClassificationClient
-                        
-            # Filter out non-client parameters
-            client_params = vars(config.serving_config)
-            client_params.update(vars(config.grammared_config) if config.grammared_config else {})
+    # Import appropriate client class based on type. Do not catch exceptions
+    # here: callers must be able to distinguish a failed configured model from
+    # an intentionally absent optional one.
+    if isinstance(config, GectorConfig):
+        from grammared_language.clients.gector_client import GectorClient
 
-            logger.warning(f"Creating GrammarClassificationClient with params: {client_params}")
-            return GrammarClassificationClient(**client_params)
+        # Scheduler settings are consumed when rendering Triton's config;
+        # GECToR's prediction batch_size comes only from model_inference_config.
+        client_params = config.serving_config.model_dump(
+            exclude={
+                'max_batch_size',
+                'preferred_batch_sizes',
+                'max_queue_delay_microseconds',
+            }
+        )
+        client_params.update(config.model_inference_config.model_dump())
+        # Configured Triton models default their serving identity to the
+        # logical YAML key, never to their source artifact.
+        client_params["triton_model_name"] = (
+            client_params.get("triton_model_name") or model_name
+        )
+        client_params.update(
+            _grammared_client_params(model_name, config.grammared_config)
+        )
+        return GectorClient(**client_params)
+        
+    if isinstance(config, GrammaredClassifierConfig):
+        from grammared_language.clients.grammar_classification_client import GrammarClassificationClient
+
+        # Filter out non-client parameters
+        client_params = vars(config.serving_config)
+        client_params.update(vars(config.grammared_config) if config.grammared_config else {})
+
+        logger.warning(f"Creating GrammarClassificationClient with params: {client_params}")
+        return GrammarClassificationClient(**client_params)
             
-        elif isinstance(config, CoEditConfig):
-            from grammared_language.clients.coedit_client import CoEditClient
-            
-            client_params = config.serving_config.model_dump()
-            # Serving and rule identities default independently from the
-            # logical YAML key.
-            client_params["model_name"] = client_params.pop("triton_model_name") or model_name
-            client_params.update(
-                _grammared_client_params(model_name, config.grammared_config)
-            )
-            
-            logger.warning(f"Creating CoEditClient with params: {client_params}")
-            return CoEditClient(**client_params)
-            
-    except Exception as e:
-        logger.error(f"Failed to create client for {model_name}: {e}")
-    
-    return None
+    if isinstance(config, CoEditConfig):
+        from grammared_language.clients.coedit_client import CoEditClient
+
+        client_params = config.serving_config.model_dump()
+        # Serving and rule identities default independently from the
+        # logical YAML key.
+        client_params["model_name"] = client_params.pop("triton_model_name") or model_name
+        client_params.update(
+            _grammared_client_params(model_name, config.grammared_config)
+        )
+
+        logger.warning(f"Creating CoEditClient with params: {client_params}")
+        return CoEditClient(**client_params)
+
+    raise ValueError(
+        f"No client implementation for model {model_name!r} with type {config.type!r}"
+    )
 
 
 """
@@ -402,20 +432,12 @@ def get_config(config_path:str=MODEL_CONFIG_PATH, use_env: bool=True, backup_con
     env_vars = {k: v for k, v in os.environ.items() if k.startswith("GRAMMARED_LANGUAGE__")}
     # Determine which config path to use
     if os.path.isfile(config_path):
-        try:
-            logger.info(f"Loading model configuration from file: {config_path}")
-            config = load_config_from_file(config_path)
-            return config
-        except Exception as e:
-            logger.warning(f"Failed to load config from file {config_path}: {e}")
+        logger.info(f"Loading model configuration from file: {config_path}")
+        return load_config_from_file(config_path)
 
     if env_vars and use_env:
-        try:
-            logger.info(f"Loading model configuration from environment variables")
-            config = load_config_from_env()
-            return config
-        except Exception as e:
-            logger.warning(f"Failed to load config from environment variables: {e}")
+        logger.info("Loading model configuration from environment variables")
+        return load_config_from_env()
 
     logger.info(f"No config path provided. Loading model configuration from backup file: {backup_config_path}")
     config = load_config_from_file(backup_config_path)
@@ -436,8 +458,11 @@ def create_clients_from_config(config_path: str=None, use_env: bool=True, backup
     clients = []
     
     for m_name, m_config in models_config.models.items():
-        client = create_client_from_config(m_name, m_config)
-        if client:
-            clients.append(client)
+        try:
+            client = create_client_from_config(m_name, m_config)
+        except Exception as error:
+            failure = ModelClientInitializationError(m_name, m_config, error)
+            raise failure from error
+        clients.append(client)
     
     return clients
