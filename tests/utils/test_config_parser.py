@@ -10,6 +10,7 @@ from grammared_language.utils.config_parser import (
     create_client_from_config,
     create_clients_from_config,
     ModelsConfig,
+    ModelClientInitializationError,
     GectorConfig,
     GrammaredClassifierConfig,
     CoEditConfig,
@@ -194,8 +195,8 @@ class TestCreateClientFromConfig:
             create_client_from_config('test_model', config)
     
     @patch('grammared_language.clients.gector_client.GectorClient')
-    def test_create_client_exception_handling(self, mock_gector):
-        """Test exception handling during client creation."""
+    def test_create_client_propagates_initialization_error(self, mock_gector):
+        """Direct client creation must not convert failures into None."""
         config = {
             'type': 'gector',
             'backend': 'triton',
@@ -207,8 +208,8 @@ class TestCreateClientFromConfig:
         
         mock_gector.side_effect = Exception("Test error")
         
-        result = create_client_from_config('test_model', config)
-        assert result is None
+        with pytest.raises(Exception, match="Test error"):
+            create_client_from_config('test_model', config)
 
 
 class TestCreateClientsFromConfig:
@@ -288,8 +289,8 @@ class TestCreateClientsFromConfig:
     
     @patch('grammared_language.utils.config_parser.create_client_from_config')
     @patch('grammared_language.utils.config_parser.get_config')
-    def test_create_clients_handle_none_return(self, mock_get_config, mock_create):
-        """Test that None returns from create_client_from_config are filtered."""
+    def test_configured_client_failure_aborts_startup(self, mock_get_config, mock_create):
+        """A configured model cannot disappear from the client set."""
         mock_models_config = ModelsConfig(
             models={
                 'model1': GectorConfig(
@@ -300,8 +301,8 @@ class TestCreateClientsFromConfig:
                         triton_model_name='gector_model'
                     )
                 ),
-                'model2': GectorConfig(
-                    type='gector',
+                'model2': CoEditConfig(
+                    type='coedit',
                     backend='triton',
                     serving_config=ServingConfig(
                         pretrained_model_name_or_path='test2',
@@ -313,14 +314,18 @@ class TestCreateClientsFromConfig:
         mock_get_config.return_value = mock_models_config
         
         mock_client1 = Mock()
-        mock_create.side_effect = [mock_client1, None]
-        
-        result = create_clients_from_config('test_config.yaml')
-        
-        # Should only have 1 client (model2 returned None)
-        assert len(result) == 1
-        assert result[0] == mock_client1
+        mock_create.side_effect = [mock_client1, ConnectionError('CoEdIT unavailable')]
 
+        with pytest.raises(ModelClientInitializationError) as raised:
+            create_clients_from_config('test_config.yaml')
+
+        message = str(raised.value)
+        assert "name='model2'" in message
+        assert "type='coedit'" in message
+        assert "backend='triton'" in message
+        assert "grpc://localhost:8001" in message
+        assert "CoEdIT unavailable" in message
+        assert isinstance(raised.value.__cause__, ConnectionError)
 
 class TestNestedConfigStructure:
     """Test new nested config structure."""

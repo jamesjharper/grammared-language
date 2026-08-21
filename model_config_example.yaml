@@ -60,7 +60,6 @@ coedit_large:
 
   # Use Triton Inference Server to host and execute the model.
   backend: triton
-  
   model_init_config:
     # Batch size used internally by the Hugging Face/ONNX text-generation
     # pipeline when processing multiple inputs.

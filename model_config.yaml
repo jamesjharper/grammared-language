@@ -20,6 +20,12 @@ coedit_large:
   type: coedit
   backend: triton
 
+  # Batch size used internally by the Hugging Face/ONNX text-generation
+  # pipeline when processing multiple inputs. This is distinct from Triton's
+  # request scheduler configuration below.
+  model_init_config:
+    batch_size: 8
+
   serving_config:
     # Triton gRPC endpoint.
     triton_host: triton-server
@@ -35,7 +41,6 @@ coedit_large:
     preferred_batch_sizes: [1, 2, 4, 8]
 
     max_queue_delay_microseconds: 750
-    batch_size: 8
 
   model_inference_config:
     do_sample: false
