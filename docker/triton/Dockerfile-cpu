@@ -1,0 +1,51 @@
+# CPU inference variant of Grammared's Triton image.
+# The NVIDIA Triton base itself may contain CUDA libraries; this target installs
+# CPU-only PyTorch and ONNX Runtime, and does not install Grammared GPU extras.
+FROM nvcr.io/nvidia/tritonserver:25.07-py3
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl git python3-pip bash && \
+    rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --break-system-packages uv
+
+ENV TRITON_VENV=/opt/tritonserver/python_backend_env
+RUN uv venv "$TRITON_VENV"
+
+# Install CPU PyTorch before the remaining dependencies so generic torch
+# requirements resolve against the existing CPU wheel.
+RUN uv pip install --python "$TRITON_VENV" \
+    'torch==2.10.0+cpu' --index-url https://download.pytorch.org/whl/cpu --no-cache-dir
+
+COPY docker/requirements/base.txt /tmp/base.txt
+COPY docker/requirements/triton-arm.txt /tmp/triton-cpu.txt
+RUN uv pip install --python "$TRITON_VENV" \
+    -r /tmp/base.txt -r /tmp/triton-cpu.txt --no-cache-dir && \
+    rm /tmp/base.txt /tmp/triton-cpu.txt
+
+COPY pyproject.toml /grammared_language/
+COPY grammared_language/ /grammared_language/grammared_language/
+WORKDIR /grammared_language
+# Install the application without GPU extras; its CPU runtime requirements
+# were installed above. Core project dependencies remain resolved normally.
+RUN uv pip install --python "$TRITON_VENV" . --no-cache-dir
+
+RUN PYTHON_VERSION=$($TRITON_VENV/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
+    ln -s "$TRITON_VENV/lib/python${PYTHON_VERSION}/site-packages" "$TRITON_VENV/site-packages"
+
+ENV MODEL_REPOSITORY=/models \
+    LOG_VERBOSE=0 \
+    TRANSFORMERS_CACHE=/cache \
+    HF_HOME=/cache \
+    PATH="$TRITON_VENV/bin:$PATH" \
+    PYTHONPATH="$TRITON_VENV/site-packages:$PYTHONPATH"
+
+# Fail the image build if a GPU PyTorch or ONNX Runtime package was installed.
+RUN "$TRITON_VENV/bin/python" -c "import torch; assert torch.version.cuda is None, 'Expected CPU-only PyTorch'; import onnxruntime as ort; assert 'CUDAExecutionProvider' not in ort.get_available_providers(), ort.get_available_providers()"
+
+WORKDIR /
+COPY docker/default_model_config.yaml /default_model_config.yaml
+COPY docker/triton/build_repo.py /build_repo.py
+EXPOSE 8000 8001 8002
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/v2/health/ready || exit 1
+CMD ["/bin/bash", "-c", "$TRITON_VENV/bin/python /build_repo.py && tritonserver --model-repository=/models --log-verbose=1"]

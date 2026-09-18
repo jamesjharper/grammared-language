@@ -1,9 +1,7 @@
 # Triton Inference Server Dockerfile
-# This is a placeholder/template for the Triton server Docker image
-
-# Use NVIDIA Triton Inference Server as base image
-# FROM nvcr.io/nvidia/tritonserver:25.07-vllm-python-py3
-FROM nvcr.io/nvidia/tritonserver:25.07-vllm-python-py3
+# Use the standard Triton image: Grammared uses the Python backend, not vLLM.
+# This remains a GPU-enabled image; CPU-only packaging requires separate dependency changes.
+FROM nvcr.io/nvidia/tritonserver:25.07-py3
 
 RUN apt-get update && apt-get install -y \
     curl git pip bash && \
